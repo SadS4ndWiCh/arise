@@ -6,6 +6,44 @@
 #include <netinet/in.h>
 
 #include "http.h"
+#include "server.h"
+
+int on_request(struct HTTPRequest req, int client_fd) {
+    char filepath[100] = ".";
+
+    strcat(filepath, req.path);
+
+    if (req.path[strlen(req.path) - 1] == '/') {
+        strcat(filepath, "index.html");
+    }
+
+    FILE *fp = fopen(filepath, "r");
+    if (!fp) {
+        fprintf(stderr, "ERROR: fopen() failed to open the file: %s\n", filepath);
+        return -1;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    char header[100];
+    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n");
+
+    size_t header_size = strlen(header);
+    char *response = (char *) malloc(file_size + header_size);
+    strcat(response, header);
+
+    char *file_buf = response + header_size;
+    fread(file_buf, file_size, 1, fp);
+
+    if (send(client_fd, response, file_size + header_size, 0) == -1) {
+        fprintf(stderr, "ERROR: send() failed to send response to client.\n");
+        return -1;
+    }
+
+    return 0;
+}
 
 int main(int argc, char **argv) {
     if (argc < 2) {
@@ -16,67 +54,20 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd == -1) {
-        fprintf(stderr, "ERROR: socket() failed to create the file descriptor.\n");
+    struct Server srv;
+    if (Server_init(&srv, INADDR_LOOPBACK, 3000) == -1) {
+        fprintf(stderr, "ERROR: Server_init() failed to initialize the server.\n");
         return 1;
     }
 
-    int reuse = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
-        fprintf(stderr, "ERROR: setsockopt() failed to set `SO_REUSEADDR` socket option.\n");
+    srv.on_request = &on_request;
+
+    if (Server_listen(&srv) == -1) {
+        fprintf(stderr, "ERROR: Server_listen() failed to start listening for new connections.\n");
         return 1;
     }
 
-    struct sockaddr_in server_addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(3000),
-        .sin_addr = { htonl(INADDR_LOOPBACK) }
-    };
-
-    if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
-        fprintf(stderr, "ERROR: bind() failed to bind the socket to local address.\n");
-        return 1;
-    }
-
-    if (listen(server_fd, 10) == -1) {
-        fprintf(stderr, "ERROR: listen() failed to start listen for connections.\n");
-        return 1;
-    }
-
-    while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t client_addr_len;
-
-        int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-        if (client_fd == -1) {
-            fprintf(stderr, "ERROR: connect() failed to stable connection with client.\n");
-            continue;
-        }
-
-        char request[1024] = {0};
-        size_t request_len = sizeof(request) / sizeof(request[0]);
-
-        if (recv(client_fd, request, request_len, 0) == -1) {
-            fprintf(stderr, "ERROR: recv() receives the request payload.\n");
-            continue;
-        }
-
-        struct HTTPRequest req = HTTPRequest_parse(request);
-        char filepath[100] = { '.' };
-
-        strcat(filepath, req.path);
-
-        if (req.path[strlen(req.path) - 1] == '/') {
-            strcat(filepath, "index.html");
-        }
-
-        printf("Requested File: %s\n", filepath);
-
-        close(client_fd);
-    }
-
-    close(server_fd);
+    close(srv.fd);
 
     return 0;
 }
