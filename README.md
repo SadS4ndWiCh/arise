@@ -1,6 +1,8 @@
+<img src=".github/arise.png" width="300">
+
 # 🧬 arise
 
-Get your shit HTML files and give them the power of the being access via 
+Get your shit HTML files and give them the power of being accessed via 
 localhost. ARISE!
 
 ## 🎐 Arise your project
