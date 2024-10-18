@@ -1,7 +1,9 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 
@@ -20,6 +22,14 @@ int setup_socket(void) {
 
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) == -1) {
         fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: setsockopt() failed to set `SO_REUSEADDR` socket option.\n", __FILE__, __LINE__);
+        exit(EXIT_FAILURE);
+    }
+
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))) {
+        fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: setsockopt() failed to set `SO_RCVTIMEO` socket option.\n", __FILE__, __LINE__);
         exit(EXIT_FAILURE);
     }
 
@@ -50,15 +60,7 @@ int accept_conn(int server_fd) {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len;
 
-    int client_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-    if (client_fd == -1) {
-        fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: accept() failed to accept new connection.\n", __FILE__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    fprintf(stdout, "[\x1b[32m+\x1b[m] New connecton stablished.\n");
-
-    return client_fd;
+    return accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 }
 
 char *read_request(int client_fd) {
@@ -76,7 +78,7 @@ char *read_request(int client_fd) {
 
         if (AppendBuffer_append(&request, buf, nbytes) == -1) {
             fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: AppendBuffer_append() failed to append to the buffer.\n", __FILE__, __LINE__);
-            exit(EXIT_FAILURE);
+            break;
         }
 
         if ((size_t) nbytes < ARRAY_LEN(buf)) {
@@ -93,13 +95,7 @@ char *read_request(int client_fd) {
 char *get_request_path(char *request_raw) {
     strtok(request_raw, " ");
 
-    char *path = strtok(NULL, " ");
-    if (path == NULL) {
-        fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: strtok() failed to request path token.\n", __FILE__, __LINE__);
-        exit(EXIT_FAILURE);
-    }
-
-    return path;
+    return strtok(NULL, " ");
 }
 
 void request_path_to_file_path(char *request_path, char *fpath) {
@@ -117,12 +113,29 @@ int main(int argc, char **argv) {
     while (1) {
         // Accept connection
         int client_fd = accept_conn(server_fd);
+        if (client_fd == -1) {
+            fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: accept() failed to accept new connection.\n", __FILE__, __LINE__);
+            continue;
+        }
+
+        fprintf(stdout, "[\x1b[32m+\x1b[m] New connecton stablished.\n");
 
         // Read request payload
         char *request_raw = read_request(client_fd);
+        if (request_raw == NULL) {
+            fprintf(stdout, "[\x1b[33m+\x1b[m] Closed the client connection due timeout.\n");
+            close(client_fd);
+            continue;
+        }
 
         // Transform request path to file path
         char *request_path = get_request_path(request_raw);
+        if (request_path == NULL) {
+            fprintf(stderr, "[\x1b[31m-\x1b[m] %s:%d ERROR: strtok() failed to request path token.\n", __FILE__, __LINE__);
+            close(client_fd);
+            continue;
+        }
+
         fprintf(stdout, "[\x1b[32m+\x1b[m] Get request path: %s\n", request_path);
 
         char fpath[128] = { '.' };
