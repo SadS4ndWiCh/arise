@@ -9,7 +9,12 @@
 #include "tcp.h"
 #include "process.h"
 
-void handle_connection(int clientfd) {
+struct Options {
+    char *port;
+    char *basePath;
+};
+
+void handle_connection(int clientfd, struct Options *options) {
     // read the request payload
     char request_buf[1024];
     if (recv(clientfd, request_buf, sizeof(request_buf) / sizeof(request_buf[0]), 0) == -1) {
@@ -22,7 +27,8 @@ void handle_connection(int clientfd) {
     char *request_path = strtok(NULL, " ");
 
     // translate the request path into file path
-    char filepath[255] = {'.'};
+    char filepath[255];
+    strcpy(filepath, options->basePath);
     strcat(filepath, request_path);
 
     if (filepath[strlen(filepath) - 1] == '/') {
@@ -69,12 +75,17 @@ void handle_connection(int clientfd) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        printf("usage: arise <port>");
+    struct Options options;
+
+    if (argc < 3) {
+        puts("usage: arise <path> <port>");
         exit(0);
     }
 
-    int serverfd = createsock("localhost", argv[1]);
+    options.basePath = argv[1];
+    options.port     = argv[2];
+
+    int serverfd = createsock("localhost", options.port);
 
     // Reap all dead proccesses
     reap_processes();
@@ -99,7 +110,7 @@ int main(int argc, char **argv) {
         if (!fork()) {
             close(serverfd);
 
-            handle_connection(clientfd);
+            handle_connection(clientfd, &options);
 
             close(clientfd);
             exit(0);
