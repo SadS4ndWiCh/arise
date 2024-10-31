@@ -19,6 +19,6 @@ $ arise <path> <port>
 
 - [x] Serve files starting from any path;
 - [x] Custom port definition;
-- [ ] Send headers;
-- [ ] Send images;
-- [ ] Send audios;
+- [ ] Serve images;
+- [ ] Serve audios;
+- [ ] Response headers;
